@@ -5,11 +5,15 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
 
+	"github.com/gin-contrib/logger"
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/sqlite"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/speps/go-hashids"
 )
 
@@ -25,6 +29,16 @@ type Link struct {
 }
 
 func main() {
+	// Initiate logging
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+
+	log.Logger = log.Output(
+		zerolog.ConsoleWriter{
+			Out:     os.Stdout,
+			NoColor: false,
+		},
+	)
+
 	// Initiate Hashids
 	hd := hashids.NewData()
 	hd.Salt = "this is my salt"
@@ -38,7 +52,9 @@ func main() {
 	}
 	defer db.Close()
 	db.AutoMigrate(&Link{})
-	r := gin.Default()
+	r := gin.New()
+	r.Use(logger.SetLogger())
+	r.Use(gin.Recovery())
 	r.GET("/u/:slug", GetLink)
 	r.POST("/u", CreateLink)
 	r.Run(":8000")
@@ -59,7 +75,11 @@ func CreateLink(c *gin.Context) {
 // GetLink gets link from slug
 func GetLink(c *gin.Context) {
 	slug := c.Params.ByName("slug")
-	d, _ := h.DecodeWithError(slug)
+	d, err := h.DecodeWithError(slug)
+	if err != nil {
+		c.AbortWithStatus(404)
+		return
+	}
 	id := d[0]
 	var link Link
 	if err := db.Where("id = ?", id).First(&link).Error; err != nil {
